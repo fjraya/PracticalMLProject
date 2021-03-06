@@ -1,0 +1,155 @@
+---
+title: "Practical machine learning project"
+author: "Francisco Javier Raya"
+date: "3/5/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+```
+
+## Data
+
+### Loading data
+
+```{r}
+training <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", na.strings=c("NA", ""))
+testing <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", na.strings=c("NA", ""))
+```
+
+Training data has many rows:
+```{r}
+dim(training)
+dim(testing)
+```
+
+
+### Preprocessing data
+
+I work on training set. There are variables with many NA values. I don't show summary data because there are 160 variables. But, I delete those who have more than 10000 NA values:
+
+```{r}
+library(dplyr)
+highNAsColNames <- colnames(training)[colSums(is.na(training)) > 10000]
+training <- select(training, -all_of(highNAsColNames))
+testing <- select(testing, -all_of(highNAsColNames))
+dim(training)
+dim(testing)
+```
+
+I also delete "X", "username" and "timestamp" columns.
+
+```{r}
+training <- select(training, -c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp"))
+testing <- select(testing, -c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp"))
+
+dim(training)
+dim(testing)
+
+```
+
+I eliminate the possible variables with variance close to 0 (almost constant values), I look for strongly correlated variables and I keep the best ones (I eliminate the rest)
+
+```{r}
+zeroVar <- nearZeroVar(training, saveMetrics=F)   
+colnames(training)[zeroVar]
+if (length(zeroVar) > 0) {
+    training <- training[,-zeroVar]
+    testing <- testing[, -zeroVar]
+}
+
+continuousTraining <- select(training, -c("classe"))
+
+corTraining <- cor( as.data.frame(continuousTraining))
+corTrainingIndex <- findCorrelation(corTraining, 0.80 ) 
+deleteColumns <- names(continuousTraining[, corTrainingIndex])
+continuousTraining <- select(continuousTraining,-all_of(deleteColumns))
+testing <- select(testing,-all_of(deleteColumns))
+continuousTraining$classe <- as.factor(training$classe)
+```
+
+
+Finally, I make an barplot to see distribution of different classes. Dataset is balanced.
+
+
+```{r}
+
+ggplot(continuousTraining, aes(x=classe, fill=classe)) + geom_bar()
+
+```
+
+## Machine Learning algorithms
+
+All variables are continuous except "classe". I think it's interesting to compare multiclass classification algorithms like RPART and C5.0.
+
+
+### Training and test set
+
+I split training data into train and test:
+
+```{r}
+set.seed(12345)
+trainIndex <- createDataPartition(continuousTraining$classe, p=0.7, list=FALSE)
+
+train <- continuousTraining[trainIndex, ]
+test <- continuousTraining[-trainIndex, ]
+
+```
+
+### Rpart
+
+I use 10-fold cross validation:
+
+``` {r}
+set.seed(12345)
+outputData <- as.factor(train$classe)
+rpartControl <- trainControl(method="cv")
+rpartModel <- train(x=train[, -dim(train)[2]], y=outputData, method="rpart", trControl = rpartControl)
+rpartModel
+```
+
+Finally I make predictions with testing set:
+
+```{r}
+predictionRpart <- predict(rpartModel, test)
+
+confusionMatrix(test$classe, predictionRpart)
+
+```
+
+I obtain a 53% of accuracy. Poor results. For this reason, I'll try C5.0 algorithm
+
+### C5.0
+
+I show that C5.0 algorithm improves a lot in training:
+
+```{r}
+set.seed(12345)
+outputData <- as.factor(train$classe)
+c5Control <- trainControl(method="cv")
+c5Model <- train(x=train[, -dim(train)[2]], y=outputData, method="C5.0", trControl = c5Control)
+c5Model
+```
+
+Finally, prediction confirms improvement. I get 99.9% accuracy!
+
+
+```{r}
+predictionC5 <- predict(c5Model, test)
+confusionMatrix(test$classe, predictionC5)
+
+
+```
+
+
+## Prediction of testing set
+
+```{r}
+
+predictionTesting <- predict(c5Model, testing)
+predictionTesting
+
+```
+
